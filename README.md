@@ -1,6 +1,6 @@
 # basketballll
 
-# SmartCoach v3: Nhận diện & Phân tích Chiến thuật Bóng rổ
+# 🏀 SmartCoach AI
 
 Đây là mã nguồn thử nghiệm cho bài toán áp dụng Machine Learning vào việc tự động đọc vị chiến thuật bóng rổ dựa trên dữ liệu quỹ đạo (trajectory tracking) của cầu thủ.
 
