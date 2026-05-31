@@ -45,6 +45,8 @@ N_TACTICS         = len(TACTIC_LABELS)
 np.random.seed(42)
 
 # ─── HELPERS ─────────────────────────────────────────────────────────────────
+#cái này keep cái gaussian khỏi làm nhiễu 1 cách phi lý
+
 def smooth(arr, w=11):
     k = np.exp(-0.5 * np.linspace(-2, 2, w) ** 2); k /= k.sum(); p = w // 2
     out = np.zeros_like(arr)
@@ -52,6 +54,8 @@ def smooth(arr, w=11):
         col = np.pad(arr[:, d], p, mode='edge')
         out[:, d] = np.convolve(col, k, mode='valid')
     return out
+
+#gaussian đây
 
 def micro_move(n, center, r=1.5, freq=0.7):
     t = np.linspace(0, 2 * np.pi * freq, n)
@@ -64,6 +68,7 @@ def micro_move(n, center, r=1.5, freq=0.7):
 # ═══════════════════════════════════════════════════════════════════════════════
 # 1. DATA GENERATOR
 # ═══════════════════════════════════════════════════════════════════════════════
+
 def generate_possession(tactic, n_frames=N_FRAMES):
     pos = np.zeros((n_frames, N_PLAYERS, 2))
     bx  = np.zeros(n_frames)
@@ -714,6 +719,45 @@ def plot_fingerprints(vecs, labels):
 # ═══════════════════════════════════════════════════════════════════════════════
 # 8. MAIN
 # ═══════════════════════════════════════════════════════════════════════════════
+def get_custom_context():
+    import random
+    print("\n" + "="*65)
+    print(" 🛠️ TÙY CHỈNH KỊCH BẢN & BỐI CẢNH TRẬN ĐẤU (DEMO MODE)")
+    print("="*65)
+    print("(Mẹo: Bấm Enter để bỏ qua, hệ thống sẽ chọn ngẫu nhiên/mặc định)")
+
+    tactics_list = ["Fast Break", "Isolation", "Motion Offense", "Pick-and-Roll", "Post-Up"]
+    print("\n[CHIẾN THUẬT]")
+    print("1. Fast Break  |  2. Isolation  |  3. Motion Offense")
+    print("4. Pick-and-Roll  |  5. Post-Up")
+
+    try:
+        t_choice = input(" Nhập số chiến thuật muốn test (1-5): ")
+        if t_choice.strip() != "" and int(t_choice) in [1, 2, 3, 4, 5]:
+            demo_tactic = tactics_list[int(t_choice) - 1]
+        else:
+            demo_tactic = random.choice(tactics_list)
+            print(f"  -> Đã random chiến thuật: {demo_tactic}")
+
+        print("\n[BỐI CẢNH]")
+        sc = input(" 1. Thời gian ném còn lại (vd 16.0): ")
+        shot_clock = float(sc) if sc.strip() != "" else 16.0
+
+        sd = input(" 2. Cách biệt tỉ số (âm là thua): ")
+        score_diff = int(sd) if sd.strip() != "" else -3
+
+        q = input(" 3. Hiệp đấu (1-4): ")
+        quarter = int(q) if q.strip() != "" else 4
+
+    except ValueError:
+        print("\n[LỖI] Nhập sai định dạng chữ/số! Dùng kịch bản mặc định.")
+        demo_tactic = random.choice(tactics_list)
+        shot_clock, score_diff, quarter = 16.0, -3, 4
+
+    print(f"\n✅ ĐÃ CHỐT: [{demo_tactic}] | {shot_clock}s | Điểm: {score_diff} | Hiệp: {quarter}\n")
+    return demo_tactic, shot_clock, score_diff, quarter
+
+
 def main():
     print("=" * 65)
     print("  SmartCoach AI v3  |  i-TECH Research Group")
@@ -771,12 +815,10 @@ def main():
     clf = TacticClassifier()
     clf.train(vecs, ctxs, labels, epv_targets=epv_targets)
 
-    # ── Demo possession ─────────────────────────────────────────────────────
-    DEMO = "Pick-and-Roll"
-    shot_clock  = 16.0
-    score_diff  = -3
-    quarter     = 4
+   # ── Demo possession ─────────────────────────────────────────────────────
     time_remain = 3
+
+    DEMO, shot_clock, score_diff, quarter = get_custom_context()
 
     print(f"\n{'─'*65}")
     print(f"  DEMO POSSESSION: {DEMO}")
