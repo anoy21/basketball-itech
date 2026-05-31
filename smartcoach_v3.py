@@ -1,4 +1,3 @@
-
 import os
 import numpy as np
 import matplotlib.pyplot as plt
@@ -13,23 +12,20 @@ from sklearn.metrics import classification_report, accuracy_score
 import warnings
 warnings.filterwarnings("ignore")
 
+# Load environment variables from api.env file
 try:
-    import torch
-    import torch.nn as nn
-    import torch.optim as optim
-    from torch.utils.data import DataLoader, TensorDataset
-    TORCH_AVAILABLE = True
+    from dotenv import load_dotenv
+    load_dotenv(dotenv_path="api.env")
 except ImportError:
-    TORCH_AVAILABLE = False
-    print("[WARN] PyTorch chua duoc cai dat. Dung: pip install torch")
-    print("[WARN] Se fallback ve LSTM numpy (random weights).\n")
+    pass  # dotenv not available, continue without it
 
+# Try Google AI Studio
 try:
-    import anthropic
-    ANTHROPIC_AVAILABLE = True
+    import google.generativeai as genai
+    GOOGLE_AI_AVAILABLE = True
 except ImportError:
-    ANTHROPIC_AVAILABLE = False
-    print("[WARN] anthropic chua duoc cai dat. Dung: pip install anthropic")
+    GOOGLE_AI_AVAILABLE = False
+    print("[WARN] Google AI Studio chua duoc cai dat. Dung: pip install google-generativeai")
     print("[WARN] Se fallback ve coaching template.\n")
 
 # ─── CONSTANTS ───────────────────────────────────────────────────────────────
@@ -65,9 +61,9 @@ def micro_move(n, center, r=1.5, freq=0.7):
     return smooth(np.stack([x, y], axis=1))
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════════
 # 1. DATA GENERATOR
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════════
 
 def generate_possession(tactic, n_frames=N_FRAMES):
     pos = np.zeros((n_frames, N_PLAYERS, 2))
@@ -158,11 +154,22 @@ def build_sequence(data):
     return np.array(feats, dtype=np.float32)  # (T, INPUT_DIM)
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════════
 # 2. LSTM ENCODER — PyTorch (trained) hoac NumPy fallback
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════════
 
 # ── 2a. PyTorch LSTM ──────────────────────────────────────────────────────────
+try:
+    import torch
+    import torch.nn as nn
+    import torch.optim as optim
+    from torch.utils.data import DataLoader, TensorDataset
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
+    print("[WARN] PyTorch chua duoc cai dat. Dung: pip install torch")
+    print("[WARN] Se fallback ve LSTM numpy (random weights).\n")
+
 if TORCH_AVAILABLE:
     class LSTMNet(nn.Module):
         """
@@ -316,9 +323,9 @@ class LSTMEncoder:
         return vec   # (HIDDEN_DIM,)
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════════
 # 3. CLASSIFIER — GB dung LSTM vec + context; EPV trained regression
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════════
 
 # Coaching template — fallback khi khong co API key
 COACHING_TEMPLATE = {
@@ -357,11 +364,11 @@ COACHING_TEMPLATE = {
 
 def get_llm_coaching(tactic, epv, shot_clock, score_diff, quarter):
     """
-    [FIX 3] Goi Anthropic API that su thay vi dung template cung.
+    [FIX 3] Goi Google AI Studio API that su thay vi dung template cung.
     Fallback ve template neu khong co API key hoac loi mang.
     """
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if not ANTHROPIC_AVAILABLE or not api_key:
+    api_key = os.environ.get("GOOGLE_API_KEY", "")
+    if not GOOGLE_AI_AVAILABLE or not api_key:
         tmpl = COACHING_TEMPLATE[tactic]
         return {
             "strengths":  tmpl["strengths"],
@@ -372,7 +379,11 @@ def get_llm_coaching(tactic, epv, shot_clock, score_diff, quarter):
         }
 
     try:
-        client = anthropic.Anthropic(api_key=api_key)
+        # Configure Google AI Studio
+        genai.configure(api_key=api_key)
+
+        model = genai.GenerativeModel('gemini-2.5-flash')
+
         score_str = f"+{score_diff}" if score_diff > 0 else str(score_diff)
         prompt = f"""Ban la HLV bong ro chuyen nghiep dang phan tich mot luot tan cong.
 
@@ -391,12 +402,8 @@ BAI TAP: [ten 1 bai tap luyen tap cu the]
 
 Chi tra loi dung 4 dong, khong giai thich them."""
 
-        msg = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=200,
-            messages=[{"role": "user", "content": prompt}]
-        )
-        text = msg.content[0].text.strip()
+        response = model.generate_content(prompt)
+        text = response.text.strip()
         lines = {ln.split(":")[0].strip(): ":".join(ln.split(":")[1:]).strip()
                  for ln in text.splitlines() if ":" in ln}
         return {
@@ -404,10 +411,10 @@ Chi tra loi dung 4 dong, khong giai thich them."""
             "when_best":  lines.get("KHI NAO DUNG", COACHING_TEMPLATE[tactic]["when_best"]),
             "adjustment": lines.get("DIEU CHINH", COACHING_TEMPLATE[tactic]["adjustment"]),
             "drill":      lines.get("BAI TAP",    COACHING_TEMPLATE[tactic]["drill"]),
-            "source":     "llm"
+            "source":     "google_ai"
         }
     except Exception as e:
-        print(f"  [WARN] LLM API loi ({e}), dung fallback template.")
+        print(f"  [WARN] Google AI API loi ({e}), dung fallback template.")
         tmpl = COACHING_TEMPLATE[tactic]
         return {**tmpl, "source": "template"}
 
@@ -496,9 +503,9 @@ class TacticClassifier:
         }
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════════
 # 4. COURT DRAWING
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════════
 def draw_court(ax):
     ax.set_facecolor("#16213e")
     lc = "#c8d6e5"; lw = 1.2
@@ -513,9 +520,9 @@ def draw_court(ax):
     ax.set_xlim(0, COURT_W); ax.set_ylim(0, COURT_H); ax.set_aspect("equal"); ax.axis("off")
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════════
 # 5. GRADIENT TRAJECTORY
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════════
 def plot_gradient_trajectory(ax, x, y, cmap="plasma", lw=2.0, alpha=0.9, step=1):
     x2, y2 = x[::step], y[::step]
     pts  = np.array([x2, y2]).T.reshape(-1, 1, 2)
@@ -528,9 +535,9 @@ def plot_gradient_trajectory(ax, x, y, cmap="plasma", lw=2.0, alpha=0.9, step=1)
                     arrowprops=dict(arrowstyle="->", color=cols[-1], lw=1.5))
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════════
 # 6. DASHBOARD
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════════
 def visualize_dashboard(poss, result, encoder, coaching):
     fig = plt.figure(figsize=(22, 13), facecolor="#0d0d1a")
     fig.suptitle("SmartCoach AI v3  |  Basketball Tactical Intelligence  |  i-TECH",
@@ -636,7 +643,11 @@ def visualize_dashboard(poss, result, encoder, coaching):
     # ── Panel 6: Coaching (LLM hoac template) ───────────────────────────────
     ax6 = fig.add_subplot(gs[1, 2])
     ax6.set_facecolor("#0d1b2a"); ax6.axis("off")
-    src_label = "LLM (Anthropic API)" if coaching.get("source") == "llm" else "Template Fallback"
+    src_label = {
+        "llm": "LLM API",
+        "google_ai": "Google AI Studio",
+        "template": "Template Fallback"
+    }.get(coaching.get("source"), "Unknown Source")
     lines = [
         (f"TANG 3: COACHING — {src_label}", "#ff6b35", 9, True),
         (f"Chien thuat: {result['tactic']}", "#ffffff", 10, True),
@@ -670,9 +681,9 @@ def visualize_dashboard(poss, result, encoder, coaching):
     plt.close()
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════════
 # 7. FINGERPRINT PLOT
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════════
 def plot_fingerprints(vecs, labels):
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 7), facecolor="#0d0d1a")
     fig.suptitle("Tactical Fingerprint Analysis  |  SmartCoach AI v3",
@@ -711,14 +722,14 @@ def plot_fingerprints(vecs, labels):
     ax2.tick_params(colors="white")
 
     fig.tight_layout()
-    plt.savefig("tactical_fingerprints.png", dpi=130, bbox_inches="tight", facecolor="#0d0d1a")
+    plt.savefig("tactical_fingerprints.png", dpi=130, bbox_inches=("tight"), facecolor="#0d0d1a")
     print("  Fingerprints saved: tactical_fingerprints.png")
     plt.close()
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════════
 # 8. MAIN
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════════
 def get_custom_context():
     import random
     print("\n" + "="*65)
@@ -815,7 +826,7 @@ def main():
     clf = TacticClassifier()
     clf.train(vecs, ctxs, labels, epv_targets=epv_targets)
 
-   # ── Demo possession ─────────────────────────────────────────────────────
+    # ── Demo possession ─────────────────────────────────────────────────────
     time_remain = 3
 
     DEMO, shot_clock, score_diff, quarter = get_custom_context()
@@ -846,7 +857,11 @@ def main():
         tactic=result['tactic'], epv=result['epv'],
         shot_clock=shot_clock, score_diff=score_diff, quarter=quarter
     )
-    src_lbl = "Anthropic API" if coaching.get("source") == "llm" else "Template fallback"
+    src_lbl = {
+        "llm": "LLM API",
+        "google_ai": "Google AI Studio",
+        "template": "Template fallback"
+    }.get(coaching.get("source"), "Unknown")
     print(f"  Nguon       : {src_lbl}")
     print(f"  Diem manh   : {coaching['strengths']}")
     print(f"  Khi nao dung: {coaching['when_best']}")
