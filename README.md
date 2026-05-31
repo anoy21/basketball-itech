@@ -10,4 +10,4 @@ Hệ thống được thiết kế theo luồng xử lý 3 bước:
 ## Cài đặt
 
 ```bash
-pip install numpy matplotlib scikit-learn torch anthropic
+pip install numpy matplotlib scikit-learn torch google-genai
